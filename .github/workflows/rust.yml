@@ -1,0 +1,87 @@
+name: Build Rust Project
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    env:
+      program_name: rust_http_random_pictures_api
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        arch: [amd64, arm64]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Build for rust
+        shell: bash
+        run: |
+          #处理环境变量
+          arch=${{ matrix.arch }}
+          os=$RUNNER_OS
+          program_name=${{ env.program_name }}
+          
+          #处理不同系统架构差异
+          if [ "$os" == "Linux" ]; then
+            if [ "$arch" == "amd64" ]; then
+              target=x86_64-unknown-linux-gnu
+              linker=gcc
+            elif [ "$arch" == "arm64" ]; then
+              target=aarch64-unknown-linux-gnu
+              linker=aarch64-linux-gnu-gcc
+              sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+            fi
+            suffix=""
+          elif [ "$os" == "Windows" ]; then
+            if [ "$arch" == "amd64" ]; then
+              target=x86_64-pc-windows-msvc
+              linker=link.exe
+            elif [ "$arch" == "arm64" ]; then
+              target=aarch64-pc-windows-msvc
+              linker=link.exe
+            fi
+            suffix=".exe"
+          elif [ "$os" == "macOS" ]; then
+            if [ "$arch" == "amd64" ]; then
+              target=x86_64-apple-darwin
+              linker=clang
+            elif [ "$arch" == "arm64" ]; then
+              target=aarch64-apple-darwin
+              linker=clang
+            fi
+            suffix=""
+          fi
+          echo "当前环境：$os/$arch"
+          echo "当前rust工具链版本"
+          rustc --version
+
+          #添加目标架构配置
+          rustup target add ${target}
+          mkdir -p .cargo
+          cat <<EOL > "./.cargo/config.toml"
+          [target.${target}]
+          linker = "${linker}"
+          EOL
+
+          #开始编译
+          echo "开始编译"
+          echo "目标：${target}"
+          cargo build --release --target=${target}
+
+          #复制指定编译产物到output文件夹
+          mkdir -p output
+          cp target/${target}/release/${program_name}${suffix} output/${program_name}_${os}_${arch}${suffix}
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.program_name }}_${{ matrix.os }}_${{ matrix.arch }}
+          path: output/*
